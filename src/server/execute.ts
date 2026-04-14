@@ -367,6 +367,9 @@ export async function execute(
     explicitProvider,
     detectedProvider: detectedConfig?.provider,
     detectedModel: detectedConfig?.model,
+    detectedBaseUrl: detectedConfig?.baseUrl,
+    detectedHasApiKey: detectedConfig?.hasApiKey,
+    detectedApiMode: detectedConfig?.apiMode,
     model,
   });
 
