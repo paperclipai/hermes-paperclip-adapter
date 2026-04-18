@@ -121,7 +121,7 @@ First, check your environment for context:
    \`echo "TASK_ID=$PAPERCLIP_TASK_ID WAKE_REASON=$PAPERCLIP_WAKE_REASON WAKE_COMMENT_ID=$PAPERCLIP_WAKE_COMMENT_ID"\`
 
 1. List ALL open issues assigned to you (todo, backlog, in_progress):
-   \`curl -s -H "Authorization: Bearer $PAPERCLIP_API_KEY" "{{paperclipApiUrl}}/companies/{{companyId}}/issues?assigneeAgentId={{agentId}}"\`
+   \`curl -s -H "Authorization: Bearer $PAPERCLIP_API_KEY" "{{paperclipApiUrl}}/companies/{{companyId}}/issues?assigneeAgentId={{agentId}}" | python3 -c "import sys,json;issues=json.loads(sys.stdin.read());[print(f\\"{i['identifier']} {i['status']:>12} {i['priority']:>6} {i['title']}\\") for i in issues if i['status'] not in ('done','cancelled')]" \`
 
 2. If issues found, pick the highest priority one that is not done/cancelled and work on it:
    - Read the issue details: \`curl -s -H "Authorization: Bearer $PAPERCLIP_API_KEY" "{{paperclipApiUrl}}/issues/ISSUE_ID"\`
@@ -129,7 +129,7 @@ First, check your environment for context:
    - When done, mark complete and post a comment (see Workflow steps 2-4 above)
 
 3. If no issues assigned to you, check for unassigned issues:
-   \`curl -s -H "Authorization: Bearer $PAPERCLIP_API_KEY" "{{paperclipApiUrl}}/companies/{{companyId}}/issues?status=backlog"\`
+   \`curl -s -H "Authorization: Bearer $PAPERCLIP_API_KEY" "{{paperclipApiUrl}}/companies/{{companyId}}/issues?status=backlog" | python3 -c "import sys,json;issues=json.loads(sys.stdin.read());[print(f\\"{i['identifier']} {i['title']}\\") for i in issues if not i.get('assigneeAgentId')]" \`
    If you find a relevant issue, assign it to yourself:
    \`curl -s -X PATCH -H "Authorization: Bearer $PAPERCLIP_API_KEY" -H "X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID" "{{paperclipApiUrl}}/issues/ISSUE_ID" -H "Content-Type: application/json" -d '{"assigneeAgentId":"{{agentId}}","status":"todo"}'\`
 
