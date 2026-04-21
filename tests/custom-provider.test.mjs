@@ -6,6 +6,15 @@ import { join } from 'node:path';
 
 import { parseModelFromConfig, resolveProvider, testEnvironment } from '../dist/server/index.js';
 
+const providerEnvKeys = [
+  'ANTHROPIC_API_KEY',
+  'OPENROUTER_API_KEY',
+  'OPENAI_API_KEY',
+  'ZAI_API_KEY',
+  'KIMI_API_KEY',
+  'MINIMAX_API_KEY',
+];
+
 test('parseModelFromConfig tracks api_key presence without exposing the raw secret', () => {
   const parsed = parseModelFromConfig([
     'model:',
@@ -78,6 +87,7 @@ async function withHermesHomeConfig(configLines, fn) {
     USERPROFILE: process.env.USERPROFILE,
     HOMEDRIVE: process.env.HOMEDRIVE,
     HOMEPATH: process.env.HOMEPATH,
+    ...Object.fromEntries(providerEnvKeys.map((key) => [key, process.env[key]])),
   };
 
   await mkdir(hermesDir, { recursive: true });
@@ -86,6 +96,9 @@ async function withHermesHomeConfig(configLines, fn) {
   process.env.USERPROFILE = tempHome;
   delete process.env.HOMEDRIVE;
   delete process.env.HOMEPATH;
+  for (const key of providerEnvKeys) {
+    delete process.env[key];
+  }
 
   try {
     return await fn();
