@@ -9,7 +9,17 @@
  * @packageDocumentation
  */
 
+import type { ServerAdapterModule } from "@paperclipai/adapter-utils";
+
 import { ADAPTER_TYPE, ADAPTER_LABEL } from "./shared/constants.js";
+import {
+  execute,
+  testEnvironment,
+  sessionCodec,
+  listSkills,
+  syncSkills,
+  detectModel,
+} from "./server/index.js";
 
 export const type = ADAPTER_TYPE;
 export const label = ADAPTER_LABEL;
@@ -82,3 +92,24 @@ tools, persistent memory, session persistence, skills, and MCP support.
 - \`{{taskBody}}\` — Task description (if assigned)
 - \`{{projectName}}\` — Project name (if scoped to a project)
 `;
+
+/**
+ * External adapter plugin entrypoint expected by Paperclip's adapter manager.
+ */
+export function createServerAdapter(): ServerAdapterModule {
+  return {
+    type,
+    execute,
+    testEnvironment,
+    sessionCodec,
+    listSkills,
+    syncSkills,
+    models,
+    supportsLocalAgentJwt: true,
+    supportsInstructionsBundle: true,
+    instructionsPathKey: "instructionsFilePath",
+    requiresMaterializedRuntimeSkills: false,
+    agentConfigurationDoc,
+    detectModel,
+  };
+}

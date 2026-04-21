@@ -31,10 +31,12 @@
     "dev": "tsc --watch",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "test:command-resolution": "npm run build && node --test dist/server/command-resolution.test.js",
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@paperclipai/adapter-utils": "^2026.325.0",
+    "@paperclipai/adapter-utils": "^2026.416.0",
     "picocolors": "^1.1.0"
   },
   "devDependencies": {

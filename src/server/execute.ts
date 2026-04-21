@@ -18,6 +18,9 @@
  *   --source           session source tag for filtering
  */
 
+import fs from "node:fs/promises";
+import path from "node:path";
+
 import type {
   AdapterExecutionContext,
   AdapterExecutionResult,
@@ -63,6 +66,10 @@ function cfgStringArray(v: unknown): string[] | undefined {
     : undefined;
 }
 
+export function resolveHermesCommand(config: Record<string, unknown>): string {
+  return cfgString(config.hermesCommand) || cfgString(config.command) || HERMES_CLI;
+}
+
 // ---------------------------------------------------------------------------
 // Wake-up prompt builder
 // ---------------------------------------------------------------------------
@@ -86,29 +93,35 @@ Title: {{taskTitle}}
 
 ## Workflow
 
+0. First, check out the issue so others know you are working on it:
+   \`curl -s -X POST -H "Authorization: Bearer $PAPERCLIP_API_KEY" -H "X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID" "{{paperclipApiUrl}}/issues/{{taskId}}/checkout"\`
 1. Work on the task using your tools
 2. When done, mark the issue as completed:
-   \`curl -s -X PATCH -H "Authorization: Bearer $PAPERCLIP_API_KEY" "{{paperclipApiUrl}}/issues/{{taskId}}" -H "Content-Type: application/json" -d '{"status":"done"}'\`
+   \`curl -s -X PATCH -H "Authorization: Bearer $PAPERCLIP_API_KEY" -H "X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID" "{{paperclipApiUrl}}/issues/{{taskId}}" -H "Content-Type: application/json" -d '{"status":"done"}'\`
 3. Post a completion comment on the issue summarizing what you did:
-   \`curl -s -X POST -H "Authorization: Bearer $PAPERCLIP_API_KEY" "{{paperclipApiUrl}}/issues/{{taskId}}/comments" -H "Content-Type: application/json" -d '{"body":"DONE: <your summary here>"}'\`
+   \`curl -s -X POST -H "Authorization: Bearer $PAPERCLIP_API_KEY" -H "X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID" "{{paperclipApiUrl}}/issues/{{taskId}}/comments" -H "Content-Type: application/json" -d '{"body":"DONE: <your summary here>"}'\`
 4. If this issue has a parent (check the issue body or comments for references like TRA-XX), post a brief notification on the parent issue so the parent owner knows:
-   \`curl -s -X POST -H "Authorization: Bearer $PAPERCLIP_API_KEY" "{{paperclipApiUrl}}/issues/PARENT_ISSUE_ID/comments" -H "Content-Type: application/json" -d '{"body":"{{agentName}} completed {{taskId}}. Summary: <brief>"}'\`
+   \`curl -s -X POST -H "Authorization: Bearer $PAPERCLIP_API_KEY" -H "X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID" "{{paperclipApiUrl}}/issues/PARENT_ISSUE_ID/comments" -H "Content-Type: application/json" -d '{"body":"{{agentName}} completed {{taskId}}. Summary: <brief>"}'\`
 {{/taskId}}
 
 {{#commentId}}
 ## Comment on This Issue
 
 Someone commented. Read it:
-   \`curl -s -H "Authorization: Bearer $PAPERCLIP_API_KEY" "{{paperclipApiUrl}}/issues/{{taskId}}/comments/{{commentId}}" | python3 -m json.tool\`
+   \`curl -s -H "Authorization: Bearer $PAPERCLIP_API_KEY" "{{paperclipApiUrl}}/issues/{{taskId}}/comments/{{commentId}}"\`
 
+You do NOT need to be assigned to this issue to comment on it.
 Address the comment, POST a reply if needed, then continue working.
 {{/commentId}}
 
 {{#noTask}}
 ## Heartbeat Wake — Check for Work
 
+First, check your environment for context:
+   \`echo "TASK_ID=$PAPERCLIP_TASK_ID WAKE_REASON=$PAPERCLIP_WAKE_REASON WAKE_COMMENT_ID=$PAPERCLIP_WAKE_COMMENT_ID"\`
+
 1. List ALL open issues assigned to you (todo, backlog, in_progress):
-   \`curl -s -H "Authorization: Bearer $PAPERCLIP_API_KEY" "{{paperclipApiUrl}}/companies/{{companyId}}/issues?assigneeAgentId={{agentId}}" | python3 -c "import sys,json;issues=json.loads(sys.stdin.read());[print(f'{i[\"identifier\"]} {i[\"status\"]:>12} {i[\"priority\"]:>6} {i[\"title\"]}') for i in issues if i['status'] not in ('done','cancelled')]" \`
+   \`curl -s -H "Authorization: Bearer $PAPERCLIP_API_KEY" "{{paperclipApiUrl}}/companies/{{companyId}}/issues?assigneeAgentId={{agentId}}" | python3 -c "import sys,json;issues=json.loads(sys.stdin.read());[print(f\\"{i['identifier']} {i['status']:>12} {i['priority']:>6} {i['title']}\\") for i in issues if i['status'] not in ('done','cancelled')]" \`
 
 2. If issues found, pick the highest priority one that is not done/cancelled and work on it:
    - Read the issue details: \`curl -s -H "Authorization: Bearer $PAPERCLIP_API_KEY" "{{paperclipApiUrl}}/issues/ISSUE_ID"\`
@@ -116,9 +129,9 @@ Address the comment, POST a reply if needed, then continue working.
    - When done, mark complete and post a comment (see Workflow steps 2-4 above)
 
 3. If no issues assigned to you, check for unassigned issues:
-   \`curl -s -H "Authorization: Bearer $PAPERCLIP_API_KEY" "{{paperclipApiUrl}}/companies/{{companyId}}/issues?status=backlog" | python3 -c "import sys,json;issues=json.loads(sys.stdin.read());[print(f'{i[\"identifier\"]} {i[\"title\"]}') for i in issues if not i.get('assigneeAgentId')]" \`
+   \`curl -s -H "Authorization: Bearer $PAPERCLIP_API_KEY" "{{paperclipApiUrl}}/companies/{{companyId}}/issues?status=backlog" | python3 -c "import sys,json;issues=json.loads(sys.stdin.read());[print(f\\"{i['identifier']} {i['title']}\\") for i in issues if not i.get('assigneeAgentId')]" \`
    If you find a relevant issue, assign it to yourself:
-   \`curl -s -X PATCH -H "Authorization: Bearer $PAPERCLIP_API_KEY" "{{paperclipApiUrl}}/issues/ISSUE_ID" -H "Content-Type: application/json" -d '{"assigneeAgentId":"{{agentId}}","status":"todo"}'\`
+   \`curl -s -X PATCH -H "Authorization: Bearer $PAPERCLIP_API_KEY" -H "X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID" "{{paperclipApiUrl}}/issues/ISSUE_ID" -H "Content-Type: application/json" -d '{"assigneeAgentId":"{{agentId}}","status":"todo"}'\`
 
 4. If truly nothing to do, report briefly what you checked.
 {{/noTask}}`;
@@ -129,14 +142,17 @@ function buildPrompt(
 ): string {
   const template = cfgString(config.promptTemplate) || DEFAULT_PROMPT_TEMPLATE;
 
-  const taskId = cfgString(ctx.config?.taskId);
-  const taskTitle = cfgString(ctx.config?.taskTitle) || "";
-  const taskBody = cfgString(ctx.config?.taskBody) || "";
-  const commentId = cfgString(ctx.config?.commentId) || "";
-  const wakeReason = cfgString(ctx.config?.wakeReason) || "";
+  // BUG FIX: Read task/comment data from ctx.context (wake context), not ctx.config (adapter config).
+  // ctx.config only contains adapterConfig (model, provider, timeout); ctx.context has the wake payload.
+  const context = (ctx as any).context || {};
+  const taskId = cfgString(context.taskId) || cfgString(context.issueId) || cfgString(ctx.config?.taskId);
+  const taskTitle = cfgString(context.taskTitle) || cfgString(ctx.config?.taskTitle) || "";
+  const taskBody = cfgString(context.taskBody) || cfgString(ctx.config?.taskBody) || "";
+  const commentId = cfgString(context.commentId) || cfgString(context.wakeCommentId) || cfgString(ctx.config?.commentId) || "";
+  const wakeReason = cfgString(context.wakeReason) || cfgString(ctx.config?.wakeReason) || "";
   const agentName = ctx.agent?.name || "Hermes Agent";
-  const companyName = cfgString(ctx.config?.companyName) || "";
-  const projectName = cfgString(ctx.config?.projectName) || "";
+  const companyName = cfgString(context.companyName) || cfgString(ctx.config?.companyName) || "";
+  const projectName = cfgString(context.projectName) || cfgString(ctx.config?.projectName) || "";
 
   // Build API URL — ensure it has the /api path
   let paperclipApiUrl =
@@ -315,7 +331,7 @@ export async function execute(
   const config = (ctx.config ?? ctx.agent?.adapterConfig ?? {}) as Record<string, unknown>;
 
   // ── Resolve configuration ──────────────────────────────────────────────
-  const hermesCmd = cfgString(config.hermesCommand) || HERMES_CLI;
+  const hermesCmd = resolveHermesCommand(config);
   const model = cfgString(config.model) || DEFAULT_MODEL;
   const timeoutSec = cfgNumber(config.timeoutSec) || DEFAULT_TIMEOUT_SEC;
   const graceSec = cfgNumber(config.graceSec) || DEFAULT_GRACE_SEC;
@@ -351,15 +367,50 @@ export async function execute(
     explicitProvider,
     detectedProvider: detectedConfig?.provider,
     detectedModel: detectedConfig?.model,
+    detectedBaseUrl: detectedConfig?.baseUrl,
+    detectedHasApiKey: detectedConfig?.hasApiKey,
+    detectedApiMode: detectedConfig?.apiMode,
     model,
   });
 
+  // ── Load agent instructions file (Paperclip instruction bundles) ──────
+  // Built-in adapters (claude_local, codex_local, gemini_local) read the
+  // instructionsFilePath from adapterConfig and inject it into the agent
+  // prompt. The hermes adapter was missing this — so curated instruction
+  // files (AGENTS.md, SOUL.md, HEARTBEAT.md, TOOLS.md) were never read.
+  const instructionsFilePath = cfgString(config.instructionsFilePath);
+  let agentInstructions = "";
+  if (instructionsFilePath) {
+    try {
+      agentInstructions = await fs.readFile(instructionsFilePath, "utf-8");
+      const loadedInstructionsLength = agentInstructions.length;
+      const instructionsFileDir = path.dirname(instructionsFilePath);
+      agentInstructions += `\nThe above agent instructions were loaded from ${instructionsFilePath}. Resolve any relative file references from ${instructionsFileDir}/.`;
+      await ctx.onLog(
+        "stdout",
+        `[hermes] Loaded agent instructions from ${instructionsFilePath} (${loadedInstructionsLength} chars)\n`,
+      );
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      // Non-fatal: log to stdout with an explicit "Warning:" prefix so the
+      // Paperclip UI doesn't render this as a red error (stderr output is
+      // surfaced as an error signal even when execution continues).
+      await ctx.onLog(
+        "stdout",
+        `[hermes] Warning: could not read agent instructions file "${instructionsFilePath}": ${reason}\n`,
+      );
+    }
+  }
+
   // ── Build prompt ───────────────────────────────────────────────────────
-  const prompt = buildPrompt(ctx, config);
+  let prompt = buildPrompt(ctx, config);
+  if (agentInstructions) {
+    prompt = agentInstructions + "\n\n---\n\n" + prompt;
+  }
 
   // ── Build command args ─────────────────────────────────────────────────
   // Use -Q (quiet) to get clean output: just response + session_id line
-  const useQuiet = cfgBoolean(config.quiet) !== false; // default true
+  const useQuiet = cfgBoolean(config.quiet) === true; // default false
   const args: string[] = ["chat", "-q", prompt];
   if (useQuiet) args.push("-Q");
 
@@ -415,10 +466,18 @@ export async function execute(
   };
 
   if (ctx.runId) env.PAPERCLIP_RUN_ID = ctx.runId;
-  if ((ctx as any).authToken && !env.PAPERCLIP_API_KEY)
-    env.PAPERCLIP_API_KEY = (ctx as any).authToken;
-  const taskId = cfgString(ctx.config?.taskId);
-  if (taskId) env.PAPERCLIP_TASK_ID = taskId;
+
+  // BUG FIX: Inject authToken as PAPERCLIP_API_KEY (matches adapter-claude-local behavior)
+  if ((ctx as any).authToken) env.PAPERCLIP_API_KEY = (ctx as any).authToken;
+
+  // BUG FIX: Read task context from ctx.context (wake context), not ctx.config (adapter config)
+  const ctxContext = (ctx as any).context || {};
+  const envTaskId = cfgString(ctxContext.taskId) || cfgString(ctxContext.issueId) || cfgString(ctx.config?.taskId);
+  if (envTaskId) env.PAPERCLIP_TASK_ID = envTaskId;
+  const envWakeReason = cfgString(ctxContext.wakeReason) || cfgString(ctx.config?.wakeReason);
+  if (envWakeReason) env.PAPERCLIP_WAKE_REASON = envWakeReason;
+  const envCommentId = cfgString(ctxContext.commentId) || cfgString(ctxContext.wakeCommentId) || cfgString(ctx.config?.commentId);
+  if (envCommentId) env.PAPERCLIP_WAKE_COMMENT_ID = envCommentId;
 
   const userEnv = config.env as Record<string, string> | undefined;
   if (userEnv && typeof userEnv === "object") {

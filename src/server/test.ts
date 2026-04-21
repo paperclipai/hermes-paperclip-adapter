@@ -12,10 +12,12 @@ import type {
 } from "@paperclipai/adapter-utils";
 
 import { execFile } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { promisify } from "node:util";
 
 import { HERMES_CLI, DEFAULT_MODEL, ADAPTER_TYPE, VALID_PROVIDERS } from "../shared/constants.js";
 import { detectModel, resolveProvider, inferProviderFromModel } from "./detect-model.js";
+import { resolveHermesCommand } from "./execute.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -130,20 +132,44 @@ function checkModel(
   };
 }
 
-function checkApiKeys(
+async function checkApiKeys(
   config: Record<string, unknown>,
-): AdapterEnvironmentCheck | null {
+  detectedConfig: Awaited<ReturnType<typeof detectModel>> | null,
+): Promise<AdapterEnvironmentCheck | null> {
   // The server resolves secret refs into config.env before calling testEnvironment,
   // so we check config.env first (adapter-configured secrets), then fall back to
-  // process.env (server/host environment). This mirrors how the Claude adapter does it.
+  // process.env (server/host environment), then ~/.hermes/.env (Hermes local config).
   const envConfig = (config.env ?? {}) as Record<string, unknown>;
   const resolvedEnv: Record<string, string> = {};
   for (const [key, value] of Object.entries(envConfig)) {
     if (typeof value === "string" && value.length > 0) resolvedEnv[key] = value;
   }
 
+  // Also read ~/.hermes/.env — Hermes stores API keys there by default and does
+  // not export them to the parent process, so Paperclip's process.env won't
+  // contain them.  Parsing this file ensures the environment test reports
+  // accurate results for keys that Hermes already knows about.
+  const hermesEnvKeys: Record<string, string> = {};
+  try {
+    const homeDir = process.env.HOME || process.env.USERPROFILE || "/root";
+    const hermesEnvPath = `${homeDir}/.hermes/.env`;
+    const content = readFileSync(hermesEnvPath, "utf-8");
+    for (const line of content.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const eqIdx = trimmed.indexOf("=");
+      if (eqIdx > 0) {
+        const key = trimmed.substring(0, eqIdx).trim();
+        const value = trimmed.substring(eqIdx + 1).trim();
+        if (value.length > 0) hermesEnvKeys[key] = value;
+      }
+    }
+  } catch {
+    // ~/.hermes/.env may not exist — that's fine
+  }
+
   const has = (key: string): boolean =>
-    !!(resolvedEnv[key] ?? process.env[key]);
+    !!(resolvedEnv[key] ?? process.env[key] ?? hermesEnvKeys[key]);
 
   const hasAnthropic = has("ANTHROPIC_API_KEY");
   const hasOpenRouter = has("OPENROUTER_API_KEY");
@@ -151,15 +177,6 @@ function checkApiKeys(
   const hasZai = has("ZAI_API_KEY");
   const hasKimi = has("KIMI_API_KEY");
   const hasMiniMax = has("MINIMAX_API_KEY");
-
-  if (!hasAnthropic && !hasOpenRouter && !hasOpenAI && !hasZai && !hasKimi && !hasMiniMax) {
-    return {
-      level: "warn",
-      message: "No LLM API keys found in environment",
-      hint: "Set API keys in the agent's env secrets or ~/.hermes/.env. Hermes supports: ANTHROPIC_API_KEY, OPENROUTER_API_KEY, OPENAI_API_KEY, ZAI_API_KEY, KIMI_API_KEY, MINIMAX_API_KEY",
-      code: "hermes_no_api_keys",
-    };
-  }
 
   const providers: string[] = [];
   if (hasAnthropic) providers.push("Anthropic");
@@ -169,10 +186,59 @@ function checkApiKeys(
   if (hasKimi) providers.push("Kimi");
   if (hasMiniMax) providers.push("MiniMax");
 
+  if (providers.length > 0) {
+    return {
+      level: "info",
+      message: `API keys found: ${providers.join(", ")}`,
+      code: "hermes_api_keys_found",
+    };
+  }
+
+  const requestedModel = asString(config.model);
+
+  const supportedProviders = VALID_PROVIDERS as readonly string[];
+  const modelMatchesRequested =
+    !!detectedConfig?.model &&
+    (!requestedModel || detectedConfig.model.toLowerCase() === requestedModel.toLowerCase());
+
+  const matchingHermesConfigApiKey =
+    !!detectedConfig?.hasApiKey &&
+    modelMatchesRequested;
+
+  if (matchingHermesConfigApiKey && detectedConfig) {
+    const providerLabel = detectedConfig.provider.trim();
+
+    if (!providerLabel) {
+      return {
+        level: "info",
+        message: "Hermes config includes an API key for the requested model via ~/.hermes/config.yaml without an explicit provider",
+        hint: "Skipping the built-in API-key warning because Hermes can use model.api_key from the local Hermes config.",
+        code: "hermes_api_key_in_config",
+      };
+    }
+
+    if (!supportedProviders.includes(providerLabel)) {
+      return {
+        level: "info",
+        message: `Hermes config includes runtime settings for unsupported adapter provider "${providerLabel}" via ~/.hermes/config.yaml`,
+        hint: "Skipping the built-in API-key warning because Hermes can resolve this provider at runtime.",
+        code: "hermes_custom_provider_config",
+      };
+    }
+
+    return {
+      level: "info",
+      message: `Hermes config includes an API key for provider "${providerLabel}" via ~/.hermes/config.yaml`,
+      hint: "Skipping the built-in API-key warning because Hermes can use model.api_key from the local Hermes config.",
+      code: "hermes_api_key_in_config",
+    };
+  }
+
   return {
-    level: "info",
-    message: `API keys found: ${providers.join(", ")}`,
-    code: "hermes_api_keys_found",
+    level: "warn",
+    message: "No LLM API keys found in environment",
+    hint: "Set API keys in the agent's env secrets or ~/.hermes/.env. Hermes supports: ANTHROPIC_API_KEY, OPENROUTER_API_KEY, OPENAI_API_KEY, ZAI_API_KEY, KIMI_API_KEY, MINIMAX_API_KEY",
+    code: "hermes_no_api_keys",
   };
 }
 
@@ -182,24 +248,20 @@ function checkApiKeys(
  */
 async function checkProviderConsistency(
   config: Record<string, unknown>,
+  detectedConfig: Awaited<ReturnType<typeof detectModel>> | null,
 ): Promise<AdapterEnvironmentCheck | null> {
   const model = asString(config.model);
   if (!model) return null;
 
   const explicitProvider = asString(config.provider);
 
-  // Try to detect from Hermes config
-  let detectedConfig: Awaited<ReturnType<typeof detectModel>> | null = null;
-  try {
-    detectedConfig = await detectModel();
-  } catch {
-    // Non-fatal
-  }
-
   const { provider: resolved, resolvedFrom } = resolveProvider({
     explicitProvider,
     detectedProvider: detectedConfig?.provider,
     detectedModel: detectedConfig?.model,
+    detectedBaseUrl: detectedConfig?.baseUrl,
+    detectedHasApiKey: detectedConfig?.hasApiKey,
+    detectedApiMode: detectedConfig?.apiMode,
     model,
   });
 
@@ -211,6 +273,29 @@ async function checkProviderConsistency(
       message: `Provider mismatch: adapterConfig has "${explicitProvider}" but ~/.hermes/config.yaml has "${detectedConfig.provider}". Using adapterConfig value.`,
       hint: `Model "${model}" may not work correctly with provider "${explicitProvider}". Consider aligning with your Hermes config or removing the explicit provider to use auto-detection.`,
       code: "hermes_provider_mismatch",
+    };
+  }
+
+  // If Hermes config matches the requested model but uses an adapter-unsupported
+  // provider such as "custom", do not report a false provider inference.
+  if (!explicitProvider && resolvedFrom.startsWith("hermesConfigUnsupported:")) {
+    const unsupportedProvider = resolvedFrom.split(":", 2)[1] || detectedConfig?.provider || "unknown";
+    return {
+      level: "info",
+      message: `Hermes config uses unsupported adapter provider "${unsupportedProvider}" for model "${model}" — deferring to Hermes auto-detection`,
+      hint: "Paperclip will avoid model-name provider inference here and let Hermes resolve the provider from ~/.hermes/config.yaml at runtime.",
+      code: "hermes_provider_unsupported",
+    };
+  }
+
+  // If matching Hermes config provides runtime signals without an explicit provider,
+  // also defer to Hermes rather than inventing a provider from the model name.
+  if (!explicitProvider && resolvedFrom === "hermesConfigRuntime") {
+    return {
+      level: "info",
+      message: `Hermes config provides runtime settings for model "${model}" without an explicit adapter provider — deferring to Hermes auto-detection`,
+      hint: "Paperclip will avoid model-name provider inference here and let Hermes resolve the provider from ~/.hermes/config.yaml at runtime.",
+      code: "hermes_provider_runtime_config",
     };
   }
 
@@ -244,7 +329,7 @@ export async function testEnvironment(
   ctx: AdapterEnvironmentTestContext,
 ): Promise<AdapterEnvironmentTestResult> {
   const config = (ctx.config ?? {}) as Record<string, unknown>;
-  const command = asString(config.hermesCommand) || HERMES_CLI;
+  const command = resolveHermesCommand(config);
   const checks: AdapterEnvironmentCheck[] = [];
 
   // 1. CLI installed?
@@ -273,12 +358,20 @@ export async function testEnvironment(
   const modelCheck = checkModel(config);
   if (modelCheck) checks.push(modelCheck);
 
-  // 5. API keys (check config.env — server resolves secrets before calling us)
-  const apiKeyCheck = checkApiKeys(config);
+  // 5. Detect Hermes config once for the remaining checks.
+  let detectedConfig: Awaited<ReturnType<typeof detectModel>> | null = null;
+  try {
+    detectedConfig = await detectModel();
+  } catch {
+    // Non-fatal
+  }
+
+  // 6. API keys (check config.env — server resolves secrets before calling us)
+  const apiKeyCheck = await checkApiKeys(config, detectedConfig);
   if (apiKeyCheck) checks.push(apiKeyCheck);
 
-  // 6. Provider/model consistency
-  const providerCheck = await checkProviderConsistency(config);
+  // 7. Provider/model consistency
+  const providerCheck = await checkProviderConsistency(config, detectedConfig);
   if (providerCheck) checks.push(providerCheck);
 
   // Determine overall status
