@@ -1,14 +1,18 @@
 {
-  "name": "hermes-paperclip-adapter",
+  "name": "@paperclipai/hermes-paperclip-adapter",
   "version": "0.3.0",
   "description": "Paperclip adapter for Hermes Agent — run Hermes as a managed employee in a Paperclip company",
   "type": "module",
   "license": "MIT",
-  "author": "Nous Research",
+  "author": "Paperclip",
   "repository": {
     "type": "git",
-    "url": "https://github.com/NousResearch/hermes-paperclip-adapter"
+    "url": "git+https://github.com/paperclipai/hermes-paperclip-adapter.git"
   },
+  "bugs": {
+    "url": "https://github.com/paperclipai/hermes-paperclip-adapter/issues"
+  },
+  "homepage": "https://github.com/paperclipai/hermes-paperclip-adapter#readme",
   "keywords": [
     "paperclip",
     "hermes",
@@ -26,6 +30,10 @@
   "files": [
     "dist"
   ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
