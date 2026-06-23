@@ -36,7 +36,7 @@ This adapter provides:
 ## Installation
 
 ```bash
-npm install hermes-paperclip-adapter
+npm install @paperclipai/hermes-paperclip-adapter
 ```
 
 ### Prerequisites
@@ -52,7 +52,7 @@ npm install hermes-paperclip-adapter
 Add to your Paperclip server's adapter registry (`server/src/adapters/registry.ts`):
 
 ```typescript
-import * as hermesLocal from "hermes-paperclip-adapter";
+import * as hermesLocal from "@paperclipai/hermes-paperclip-adapter";
 import {
   execute,
   testEnvironment,
@@ -60,7 +60,7 @@ import {
   listSkills,
   syncSkills,
   sessionCodec,
-} from "hermes-paperclip-adapter/server";
+} from "@paperclipai/hermes-paperclip-adapter/server";
 
 registry.set("hermes_local", {
   ...hermesLocal,
@@ -210,7 +210,7 @@ Paperclip UI can display both managed and native skills in one view.
 ## Development
 
 ```bash
-git clone https://github.com/NousResearch/hermes-paperclip-adapter
+git clone https://github.com/paperclipai/hermes-paperclip-adapter
 cd hermes-paperclip-adapter
 npm install
 npm run build
