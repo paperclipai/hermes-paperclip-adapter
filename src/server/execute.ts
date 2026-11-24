@@ -218,8 +218,8 @@ const SESSION_ID_REGEX_LEGACY = /session[_ ](?:id|saved)[:\s]+([a-zA-Z0-9_-]+)/i
 const TOKEN_USAGE_REGEX =
   /tokens?[:\s]+(\d+)\s*(?:input|in)\b.*?(\d+)\s*(?:output|out)\b/i;
 
-/** Regex to extract cost from Hermes output. */
-const COST_REGEX = /(?:cost|spent)[:\s]*\$?([\d.]+)/i;
+/** Regex to extract cost from Hermes output: a whole line of the form `Cost: $0.42`, never a word inside prose. */
+const COST_REGEX = /^[ \t]*(?:total[ \t]+)?(?:cost|spent)[ \t]*[:=][ \t]*\$?(\d+(?:\.\d+)?)[ \t]*$/im;
 
 interface ParsedOutput {
   sessionId?: string;
@@ -262,7 +262,7 @@ function cleanResponse(raw: string): string {
 // Output parsing
 // ---------------------------------------------------------------------------
 
-function parseHermesOutput(stdout: string, stderr: string): ParsedOutput {
+export function parseHermesOutput(stdout: string, stderr: string): ParsedOutput {
   const combined = stdout + "\n" + stderr;
   const result: ParsedOutput = {};
 
@@ -304,7 +304,8 @@ function parseHermesOutput(stdout: string, stderr: string): ParsedOutput {
   // Extract cost
   const costMatch = combined.match(COST_REGEX);
   if (costMatch?.[1]) {
-    result.costUsd = parseFloat(costMatch[1]);
+    const cost = parseFloat(costMatch[1]);
+    if (Number.isFinite(cost)) result.costUsd = cost;
   }
 
   // Check for error patterns in stderr
