@@ -45,6 +45,7 @@ export const VALID_PROVIDERS = [
   "minimax",
   "minimax-cn",
   "kilocode",
+  "bf16",
 ] as const;
 
 /**
@@ -85,6 +86,8 @@ export const MODEL_PREFIX_PROVIDER_HINTS: [string, string][] = [
   ["mistral", "auto"],
   // HuggingFace models (org/model format)
   ["huggingface/", "huggingface"],
+  // bf16.ai smart-router and dedicated models
+  ["bf16/", "bf16"],
 ];
 
 /** Regex to extract session ID from Hermes CLI output. */
