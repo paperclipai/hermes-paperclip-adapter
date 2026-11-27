@@ -13,6 +13,7 @@ const providerEnvKeys = [
   'ZAI_API_KEY',
   'KIMI_API_KEY',
   'MINIMAX_API_KEY',
+  'BF16_API_KEY',
 ];
 
 test('parseModelFromConfig tracks api_key presence without exposing the raw secret', () => {

@@ -112,7 +112,8 @@ export function inferProviderFromModel(model: string): string | undefined {
   const bareName = lower.includes("/") ? lower.split("/").pop()! : lower;
 
   for (const [prefix, hint] of MODEL_PREFIX_PROVIDER_HINTS) {
-    if (bareName.startsWith(prefix)) {
+    const candidate = prefix.includes("/") ? lower : bareName;
+    if (candidate.startsWith(prefix)) {
       return hint;
     }
   }

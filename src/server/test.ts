@@ -177,6 +177,7 @@ async function checkApiKeys(
   const hasZai = has("ZAI_API_KEY");
   const hasKimi = has("KIMI_API_KEY");
   const hasMiniMax = has("MINIMAX_API_KEY");
+  const hasBf16 = has("BF16_API_KEY");
 
   const providers: string[] = [];
   if (hasAnthropic) providers.push("Anthropic");
@@ -185,6 +186,7 @@ async function checkApiKeys(
   if (hasZai) providers.push("Z.AI");
   if (hasKimi) providers.push("Kimi");
   if (hasMiniMax) providers.push("MiniMax");
+  if (hasBf16) providers.push("bf16.ai");
 
   if (providers.length > 0) {
     return {
